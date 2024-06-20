@@ -1,0 +1,21 @@
+Cara untuk run projek
+- tambahkan file `.env` pada project, contohnya dapat dilihat pada `.env.example` ganti isi nilai API_KEY dengan nilai API key yang didapat dari gemini AI
+- go run finpro.go
+
+catatan tambahan: untuk test.go sudah dapat dihapus, karena tidak digunakan (opsional)
+
+Apa yang ditambahankan:
+- penambahan .gitignore (jaga jaga agar `.env` tidak ikut ter-commit)
+- library github.com/joho/godotenv => fungsinya agar projek dapat membaca file `.env` dan menambahkan variabel yang ditulis ke environment agar dapat di akses program nantinya pada bagian os.GetEnv("API_KEY")
+- penambahan api handler untuk /getFoodRecommendation yang berisi code tentang integrasi ke gemini AI
+- untuk prompt API nya boleh diedit sesuai kebutuhan tetapi ingat untuk tidak mengubah terlalu banyak terutama pada kalimat "Give the response oneline, without line break" karena itu dapat merusak respon dari gemini AI. karena gemini AI yang saat ini hanya mengembalikan nilai JSON yang valid, sehingga dapat di Unmarshal dengan lebih mudah oleh kode.
+    - contoh yang bisa diubah, "Recommend at least 10 healthy foods..." menjadi "Recommend at least 5 healthy foods ..." maka hasil keluaran akan berjumlah 5 item.
+
+- untuk API Key jika merupakan Free Trial, maka perlu diketahui beberapa syaratnya seperti:
+    - 15 RPM (requests per minute)
+    - 32,000 TPM (tokens per minute)
+    - 1,500 RPD (requests per day)
+
+selengkapnya bisa dilihat di: https://ai.google.dev/pricing
+
+Versi Gemini AI yang dipakai : gemini 1.0 pro

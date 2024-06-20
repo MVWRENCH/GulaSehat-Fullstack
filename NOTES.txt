@@ -1,0 +1,32 @@
+How to Run:
+
+- Pastikan database bloodsugar.sql sudah ada di localhost/phpMyAdmin. Caranya bisa buat database baru namanya harus 'bloodsugar', kemudian import file bloodsugar.sql.
+- Kemudian jalankan localhost, bisa menggunakan XAMPP/WAMP/dll.
+
+- Buka folder ini di VSCode, kemudian buka terminal
+
+Backend:
+- Di terminal ketik:
+  cd backend
+  go run finpro.go
+- Link backend API http://localhost:8080
+
+Frontend:
+- Buka terminal baru, kemudian ketik:
+  cd frontend
+  npm install
+  npm run dev
+- Link frontend React http://localhost:5173
+
+- Kemudian perhatikan file frontend/src/config.js
+
+***pastikan nodejs sudah terinstall pada device, cara cek buka terminal lalu ketik node -v
+***ada beberapa kode yg diubah di backend (finpro.go), yaitu function cors, agar API bisa dipakai di frontend.
+***database terbaru ada dalam folder Utama
+   backend
+   frontend
+   bloodsugar.sql   -> database yg sudah terupdate
+
+
+
+

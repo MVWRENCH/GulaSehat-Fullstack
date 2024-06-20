@@ -1,0 +1,831 @@
+AIzaSyDPwxFY1gxenaaPbS7aQFssaS5SEjNXFiU
+
+Run Terminal Command :
+
+Register User :
+$json = Get-Content -Raw -Path "registeruser.json"
+Invoke-RestMethod -Uri http://localhost:8080/register -Method Post -Body $json -ContentType "application/json" 
+
+Login User :
+$json = Get-Content -Raw -Path "loginuser.json"
+Invoke-RestMethod -Uri http://localhost:8080/login -Method Post -Body $json -ContentType "application/json"
+
+Edit User :
+$json = Get-Content -Raw -Path "edituser.json"
+Invoke-RestMethod -Uri http://localhost:8080/editUser -Method Post -Body $json -ContentType "application/json"
+
+Register Seller :
+$json = Get-Content -Raw -Path "registerpenjual.json"
+Invoke-RestMethod -Uri http://localhost:8080/registerseller -Method Post -Body $json -ContentType "application/json" 
+
+Login Seller :
+$json = Get-Content -Raw -Path "loginpenjual.json"
+Invoke-RestMethod -Uri http://localhost:8080/loginseller -Method Post -Body $json -ContentType "application/json"
+
+Edit Seller :
+$json = Get-Content -Raw -Path "editpenjual.json"
+Invoke-RestMethod -Uri http://localhost:8080/editSeller -Method Post -Body $json -ContentType "application/json"
+
+Insert Gula Darah :
+$json = Get-Content -Raw -Path "guladarah.json"
+Invoke-RestMethod -Uri http://localhost:8080/insertguladarah -Method Post -Body $json -ContentType "application/json"
+
+Insert Makanan :
+$json = Get-Content -Raw -Path "makanan.json"
+Invoke-RestMethod -Uri http://localhost:8080/insertMakanan -Method Post -Body $json -ContentType "application/json"
+
+Edit Makanan :
+$json = Get-Content -Raw -Path "editmakanan.json"
+Invoke-RestMethod -Uri http://localhost:8080/editMakanan -Method Post -Body $json -ContentType "application/json"
+
+GulaDarahStats : 
+http://localhost:8080/getGulaDarahStats?username=Effendi
+
+HistoryGulaDarah : 
+http://localhost:8080/getGulaDarahHistory?username=Effendi
+
+GulaDarahMonthlyStats :
+http://localhost:8080/getGulaDarahMonthlyStats?username=Effendi
+
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"math/rand"
+	"net/http"
+	"time"
+
+	"github.com/alexedwards/argon2id"
+	_ "github.com/go-sql-driver/mysql"
+)
+
+type User struct {
+	UserID        string    `json:"UserID"`
+	Username      string    `json:"Username"`
+	Password      string    `json:"Password"`
+	Nama_Lengkap  string    `json:"Nama_Lengkap"`
+	Email         string    `json:"Email"`
+	DOB           time.Time `json:"DOB"`
+	Alamat        string    `json:"Alamat"`
+	Jenis_Kelamin string    `json:"Jenis_Kelamin"`
+	Berat_Badan   float32   `json:"Berat_Badan"`
+}
+
+type Penjual struct {
+	PenjualID    string `json:"PenjualID"`
+	Username     string `json:"Username"`
+	Password     string `json:"Password"`
+	Nama_Penjual string `json:"Nama_Penjual"`
+	Nama_Bisnis  string `json:"Nama_Bisnis"`
+	Email        string `json:"Email"`
+	No_Telp      int64  `json:"No_Telp"`
+	Alamat       string `json:"Alamat"`
+}
+
+type GulaDarah struct {
+	GulaDarahID        string  `json:"GulahDarahID"`
+	UserID             string  `json:"userID"`
+	Tanggal_Pengecekan string  `json:"Tanggal_Pengecekan"`
+	LevelGulaDarah     float32 `json:"LevelGulaDarah"`
+	StatusGulaDarah    int     `json:"StatusGulaDarah"`
+}
+
+type Makanan struct {
+	MakananID         string `json:"MakananID"`
+	KategoriID        string `json:"KategoriID"`
+	Nama_Makanan      string `json:"Nama_Makanan"`
+	Kandungan_Makanan string `json:"Kandungan_Makanan"`
+	PenjualID         string `json:"PenjualID"`
+	Photo_Dir         string `json:"Photo_Dir"`
+}
+
+var db *sql.DB
+
+func generateUserID() string {
+	rand.Seed(time.Now().UnixNano())
+	id := fmt.Sprintf("User%06d", rand.Intn(100000))
+	return id
+}
+
+func generateSellerID() string {
+	rand.Seed(time.Now().UnixNano())
+	id := fmt.Sprintf("Seller%06d", rand.Intn(100000))
+	return id
+}
+
+func generateGulaDarahID() string {
+	rand.Seed(time.Now().UnixNano())
+	id := fmt.Sprintf("GD%08d", rand.Intn(100000))
+	return id
+}
+
+func generateMakananID() string {
+	rand.Seed(time.Now().UnixNano())
+	id := fmt.Sprintf("MK%08d", rand.Intn(100000))
+	return id
+}
+
+func hashPassword(password string) (string, error) {
+	hash, err := argon2id.CreateHash(password, argon2id.DefaultParams)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(hash), nil
+}
+
+func registerUser(w http.ResponseWriter, r *http.Request) {
+	var user User
+	err := json.NewDecoder(r.Body).Decode(&user)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	var existingUsername string
+	err = db.QueryRow("SELECT Username FROM user WHERE Username=?", user.Username).Scan(&existingUsername)
+	if err != nil && err != sql.ErrNoRows {
+		http.Error(w, "Error checking username", http.StatusInternalServerError)
+		return
+	}
+	if existingUsername != "" {
+		http.Error(w, "Username already exists", http.StatusBadRequest)
+		return
+	}
+
+	user.UserID = generateUserID()
+	hashedPassword, err := hashPassword(user.Password)
+	if err != nil {
+		http.Error(w, "Error hashing password", http.StatusInternalServerError)
+		return
+	}
+	user.Password = hashedPassword
+
+	stmt, err := db.Prepare("INSERT INTO user (UserID, Username, Password, Nama_Lengkap, Email, DOB, Alamat, Jenis_Kelamin, Berat_Badan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(user.UserID, user.Username, user.Password, user.Nama_Lengkap, user.Email, user.DOB, user.Alamat, user.Jenis_Kelamin, user.Berat_Badan)
+	if err != nil {
+		http.Error(w, "Error executing statement", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("User registered: %+v", user) // Log user registration details
+	w.WriteHeader(http.StatusCreated)
+}
+
+func loginUser(w http.ResponseWriter, r *http.Request) {
+	var user User
+	err := json.NewDecoder(r.Body).Decode(&user)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	stmt, err := db.Prepare("SELECT Password FROM user WHERE Username=?")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	var storedPassword string
+	err = stmt.QueryRow(user.Username).Scan(&storedPassword)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Invalid username or password 1", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+
+	match, err := argon2id.ComparePasswordAndHash(user.Password, storedPassword)
+	if err != nil {
+		if !match {
+			http.Error(w, "Invalid username or password 2", http.StatusUnauthorized)
+			log.Printf("Match: %v, hash: %v", match, storedPassword)
+			return
+		}
+		log.Fatal(err)
+	}
+
+	log.Printf("Stored Password: %s, Input Password: %s", storedPassword, user.Password) // Log passwords for debugging
+
+	log.Printf("User logged in: %s", user.Username) // Log successful login
+	w.WriteHeader(http.StatusOK)
+}
+
+func editUser(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Username      string    `json:"Username,omitempty"`
+		Password      string    `json:"Password,omitempty"`
+		Nama_Lengkap  string    `json:"Nama_Lengkap,omitempty"`
+		Email         string    `json:"Email,omitempty"`
+		DOB           time.Time `json:"DOB,omitempty"`
+		Alamat        string    `json:"Alamat,omitempty"`
+		Jenis_Kelamin string    `json:"Jenis_Kelamin,omitempty"`
+		Berat_Badan   float32   `json:"Berat_Badan,omitempty"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&input)
+	if err != nil {
+		http.Error(w, "Invalid input: "+err.Error(), http.StatusBadRequest)
+		log.Printf("Error decoding JSON: %v", err)
+		return
+	}
+
+	// Check if the user exists
+	var existingUserID string
+	err = db.QueryRow("SELECT UserID FROM user WHERE Username=?", input.Username).Scan(&existingUserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Username not found", http.StatusNotFound)
+			log.Printf("Username not found: %s", input.Username)
+			return
+		}
+		http.Error(w, "Error checking user ID", http.StatusInternalServerError)
+		log.Printf("Error checking user ID: %v", err)
+		return
+	}
+
+	// Update the user information
+	query := "UPDATE user SET "
+	params := []interface{}{}
+	if input.Username != "" {
+		query += "Username=?, "
+		params = append(params, input.Username)
+	}
+	if input.Password != "" {
+		hashedPassword, err := hashPassword(input.Password)
+		if err != nil {
+			http.Error(w, "Error hashing password", http.StatusInternalServerError)
+			log.Printf("Error hashing password: %v", err)
+			return
+		}
+		query += "Password=?, "
+		params = append(params, hashedPassword)
+	}
+	if input.Nama_Lengkap != "" {
+		query += "Nama_Lengkap=?, "
+		params = append(params, input.Nama_Lengkap)
+	}
+	if input.Email != "" {
+		query += "Email=?, "
+		params = append(params, input.Email)
+	}
+	if !input.DOB.IsZero() {
+		query += "DOB=?, "
+		params = append(params, input.DOB)
+	}
+	if input.Alamat != "" {
+		query += "Alamat=?, "
+		params = append(params, input.Alamat)
+	}
+	if input.Jenis_Kelamin != "" {
+		query += "Jenis_Kelamin=?, "
+		params = append(params, input.Jenis_Kelamin)
+	}
+	if input.Berat_Badan != 0 {
+		query += "Berat_Badan=?, "
+		params = append(params, input.Berat_Badan)
+	}
+
+	// Remove the trailing comma and space
+	query = query[:len(query)-2]
+
+	// Add the WHERE clause
+	query += " WHERE Username=?"
+	params = append(params, input.Username)
+
+	stmt, err := db.Prepare(query)
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		log.Printf("Error preparing statement: %v", err)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(params...)
+	if err != nil {
+		http.Error(w, "Error executing statement", http.StatusInternalServerError)
+		log.Printf("Error executing statement: %v", err)
+		return
+	}
+
+	log.Printf("User information updated: %s", input.Username)
+	w.WriteHeader(http.StatusOK)
+}
+
+func registerSeller(w http.ResponseWriter, r *http.Request) {
+	var penjual Penjual
+	err := json.NewDecoder(r.Body).Decode(&penjual)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	var existingUsername string
+	err = db.QueryRow("SELECT Username FROM penjual WHERE Username=?", penjual.Username).Scan(&existingUsername)
+	if err != nil && err != sql.ErrNoRows {
+		http.Error(w, "Error checking username", http.StatusInternalServerError)
+		return
+	}
+	if existingUsername != "" {
+		http.Error(w, "Username already exists", http.StatusBadRequest)
+		return
+	}
+
+	penjual.PenjualID = generateSellerID()
+	hashedPassword, err := hashPassword(penjual.Password)
+	if err != nil {
+		http.Error(w, "Error hashing password", http.StatusInternalServerError)
+		return
+	}
+	penjual.Password = hashedPassword
+
+	stmt, err := db.Prepare("INSERT INTO penjual (PenjualID, Username, Password, Nama_Penjual, Nama_Bisnis, Email, No_Telp, Alamat) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(penjual.PenjualID, penjual.Username, penjual.Password, penjual.Nama_Penjual, penjual.Nama_Bisnis, penjual.Email, penjual.No_Telp, penjual.Alamat)
+	if err != nil {
+		http.Error(w, "Error executing statement", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Seller registered: %+v", penjual) // Log seller registration details
+	w.WriteHeader(http.StatusCreated)
+}
+
+func loginSeller(w http.ResponseWriter, r *http.Request) {
+	var penjual Penjual
+	err := json.NewDecoder(r.Body).Decode(&penjual)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	stmt, err := db.Prepare("SELECT Password FROM penjual WHERE Username=?")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	var storedPassword string
+	err = stmt.QueryRow(penjual.Username).Scan(&storedPassword)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Invalid username or password 1", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+
+	match, err := argon2id.ComparePasswordAndHash(penjual.Password, storedPassword)
+	if err != nil {
+		if !match {
+			http.Error(w, "Invalid username or password 2", http.StatusUnauthorized)
+			log.Printf("Match: %v, hash: %v", match, storedPassword)
+			return
+		}
+		log.Fatal(err)
+	}
+
+	log.Printf("Stored Password: %s, Input Password: %s", storedPassword, penjual.Password) // Log passwords for debugging
+
+	log.Printf("Seller logged in: %s", penjual.Username) // Log successful login
+	w.WriteHeader(http.StatusOK)
+}
+
+func editSeller(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Username     string `json:"Username,omitempty"`
+		Password     string `json:"Password,omitempty"`
+		Nama_Penjual string `json:"Nama_Lengkap,omitempty"`
+		Nama_Bisnis  string `json:"Nama_Bisnis,omitempty"`
+		Email        string `json:"Email,omitempty"`
+		No_Telp      int64  `json:"No_Telp,omitempty"`
+		Alamat       string `json:"Alamat,omitempty"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&input)
+	if err != nil {
+		http.Error(w, "Invalid input: "+err.Error(), http.StatusBadRequest)
+		log.Printf("Error decoding JSON: %v", err)
+		return
+	}
+
+	// Check if the user exists
+	var existingPenjualID string
+	err = db.QueryRow("SELECT PenjualID FROM penjual WHERE Username=?", input.Username).Scan(&existingPenjualID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Username not found", http.StatusNotFound)
+			log.Printf("Username not found: %s", input.Username)
+			return
+		}
+		http.Error(w, "Error checking user ID", http.StatusInternalServerError)
+		log.Printf("Error checking user ID: %v", err)
+		return
+	}
+
+	// Update the user information
+	query := "UPDATE penjual SET "
+	params := []interface{}{}
+	if input.Username != "" {
+		query += "Username=?, "
+		params = append(params, input.Username)
+	}
+	if input.Password != "" {
+		hashedPassword, err := hashPassword(input.Password)
+		if err != nil {
+			http.Error(w, "Error hashing password", http.StatusInternalServerError)
+			log.Printf("Error hashing password: %v", err)
+			return
+		}
+		query += "Password=?, "
+		params = append(params, hashedPassword)
+	}
+	if input.Nama_Penjual != "" {
+		query += "Nama_Penjual=?, "
+		params = append(params, input.Nama_Penjual)
+	}
+	if input.Nama_Bisnis != "" {
+		query += "Nama_Bisnis=?, "
+		params = append(params, input.Nama_Bisnis)
+	}
+	if input.Email != "" {
+		query += "Email=?, "
+		params = append(params, input.Email)
+	}
+	if input.No_Telp != 0 {
+		query += "No_Telp=?, "
+		params = append(params, input.No_Telp)
+	}
+	if input.Alamat != "" {
+		query += "Alamat=?, "
+		params = append(params, input.Alamat)
+	}
+
+	// Remove the trailing comma and space
+	query = query[:len(query)-2]
+
+	// Add the WHERE clause
+	query += " WHERE Username=?"
+	params = append(params, input.Username)
+
+	stmt, err := db.Prepare(query)
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		log.Printf("Error preparing statement: %v", err)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(params...)
+	if err != nil {
+		http.Error(w, "Error executing statement", http.StatusInternalServerError)
+		log.Printf("Error executing statement: %v", err)
+		return
+	}
+
+	log.Printf("Seller information updated: %s", input.Username)
+	w.WriteHeader(http.StatusOK)
+}
+
+func insertGulaDarah(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Username       string  `json:"username"`
+		LevelGulaDarah float32 `json:"LevelGulaDarah"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&input)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	var userID string
+	stmt, err := db.Prepare("SELECT UserID FROM user WHERE Username=?")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	err = stmt.QueryRow(input.Username).Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Username not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Error executing query", http.StatusInternalServerError)
+		return
+	}
+
+	gulaDarah := GulaDarah{
+		UserID:             userID,
+		Tanggal_Pengecekan: time.Now().Format("2006-01-02 15:04:05"),
+		LevelGulaDarah:     input.LevelGulaDarah,
+	}
+	log.Printf("LevelGulaDarah: %v", input.LevelGulaDarah)
+	if gulaDarah.LevelGulaDarah < 70 {
+		gulaDarah.StatusGulaDarah = 1 //Low
+	} else if gulaDarah.LevelGulaDarah <= 100 {
+		gulaDarah.StatusGulaDarah = 2 //Normal
+	} else {
+		gulaDarah.StatusGulaDarah = 3 //High
+	}
+
+	gulaDarah.GulaDarahID = generateGulaDarahID()
+
+	stmt, err = db.Prepare("INSERT INTO gula_darah (GulaDarahID, UserID, Tanggal_Pengecekan, LevelGulaDarah, StatusGulaDarah) VALUES (?, ?, ?, ?, ?)")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(gulaDarah.GulaDarahID, gulaDarah.UserID, gulaDarah.Tanggal_Pengecekan, gulaDarah.LevelGulaDarah, gulaDarah.StatusGulaDarah)
+	if err != nil {
+		http.Error(w, "Error executing statement", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("Gula Darah record inserted for userID: %s", gulaDarah.UserID) // Log Gula Darah record insertion
+	w.WriteHeader(http.StatusCreated)
+}
+
+func getGulaDarahStats(w http.ResponseWriter, r *http.Request) {
+
+	type GulaDarahStats struct {
+		Average *float64 `json:"average"`
+		Min     float64  `json:"min"`
+		Max     float64  `json:"max"`
+		Latest  float64  `json:"latest"`
+	}
+
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+
+	var userID string
+	stmt, err := db.Prepare("SELECT UserID FROM user WHERE Username=?")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	err = stmt.QueryRow(username).Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Username not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Error executing query", http.StatusInternalServerError)
+		return
+	}
+
+	var stats GulaDarahStats
+	var average float64
+	err = db.QueryRow("SELECT AVG(LevelGulaDarah), MIN(LevelGulaDarah), MAX(LevelGulaDarah) FROM gula_darah WHERE UserID=?", userID).Scan(&average, &stats.Min, &stats.Max)
+	if err != nil {
+		http.Error(w, "Error calculating statistics", http.StatusInternalServerError)
+		return
+	}
+	stats.Average = &average
+
+	err = db.QueryRow("SELECT LevelGulaDarah FROM gula_darah WHERE UserID=? ORDER BY Tanggal_Pengecekan DESC LIMIT 1", userID).Scan(&stats.Latest)
+	if err != nil {
+		http.Error(w, "Error fetching latest data", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(stats)
+	if err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
+}
+
+func getGulaDarahHistory(w http.ResponseWriter, r *http.Request) {
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+
+	var userID string
+	stmt, err := db.Prepare("SELECT UserID FROM user WHERE Username=?")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	err = stmt.QueryRow(username).Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Username not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Error executing query", http.StatusInternalServerError)
+		return
+	}
+
+	rows, err := db.Query("SELECT GulaDarahID, UserID, Tanggal_Pengecekan, LevelGulaDarah, StatusGulaDarah FROM gula_darah WHERE UserID=? ORDER BY Tanggal_Pengecekan DESC", userID)
+	if err != nil {
+		http.Error(w, "Error fetching Gula Darah history", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var history []GulaDarah
+	for rows.Next() {
+		var record GulaDarah
+		err := rows.Scan(&record.GulaDarahID, &record.UserID, &record.Tanggal_Pengecekan, &record.LevelGulaDarah, &record.StatusGulaDarah)
+		if err != nil {
+			http.Error(w, "Error scanning row", http.StatusInternalServerError)
+			return
+		}
+		history = append(history, record)
+	}
+
+	if err = rows.Err(); err != nil {
+		http.Error(w, "Error iterating rows", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(history)
+	if err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
+}
+
+func getGulaDarahMonthlyStats(w http.ResponseWriter, r *http.Request) {
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+
+	// Automatically detect the current month
+	currentMonth := time.Now().Format("2006-01")
+
+	var userID string
+	stmt, err := db.Prepare("SELECT UserID FROM user WHERE Username=?")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	err = stmt.QueryRow(username).Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Username not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Error executing query", http.StatusInternalServerError)
+		return
+	}
+
+	query := `
+		SELECT 
+			COUNT(CASE WHEN StatusGulaDarah = 1 THEN 1 END) AS LowCount,
+			COUNT(CASE WHEN StatusGulaDarah = 2 THEN 1 END) AS NormalCount,
+			COUNT(CASE WHEN StatusGulaDarah = 3 THEN 1 END) AS HighCount,
+			COUNT(*) AS TotalCount
+		FROM 
+			gula_darah 
+		WHERE 
+			UserID = ? 
+			AND DATE_FORMAT(Tanggal_Pengecekan, '%Y-%m') = ?
+	`
+
+	var lowCount, normalCount, highCount, totalCount int
+	err = db.QueryRow(query, userID, currentMonth).Scan(&lowCount, &normalCount, &highCount, &totalCount)
+	if err != nil {
+		http.Error(w, "Error calculating monthly stats", http.StatusInternalServerError)
+		return
+	}
+
+	var lowPercent, normalPercent, highPercent float64
+	if totalCount > 0 {
+		lowPercent = (float64(lowCount) / float64(totalCount)) * 100
+		normalPercent = (float64(normalCount) / float64(totalCount)) * 100
+		highPercent = (float64(highCount) / float64(totalCount)) * 100
+	}
+
+	stats := map[string]float64{
+		"low_percent":    lowPercent,
+		"normal_percent": normalPercent,
+		"high_percent":   highPercent,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(stats)
+	if err != nil {
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
+}
+
+func insertMakanan(w http.ResponseWriter, r *http.Request) {
+	var makanan Makanan
+	err := json.NewDecoder(r.Body).Decode(&makanan)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	// Generate a new MakananID
+	makanan.MakananID = generateMakananID()
+
+	// Prepare the SQL statement
+	stmt, err := db.Prepare("INSERT INTO makanan (MakananID, KategoriID, Nama_Makanan, Kandungan_Makanan, PenjualID, Photo_Dir) VALUES (?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	// Execute the statement
+	_, err = stmt.Exec(makanan.MakananID, makanan.KategoriID, makanan.Nama_Makanan, makanan.Kandungan_Makanan, makanan.PenjualID, makanan.Photo_Dir)
+	if err != nil {
+		http.Error(w, "Error executing statement", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Makanan inserted: %+v", makanan)
+	w.WriteHeader(http.StatusCreated)
+}
+
+func editMakanan(w http.ResponseWriter, r *http.Request) {
+	var makanan Makanan
+	err := json.NewDecoder(r.Body).Decode(&makanan)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	// Prepare the SQL statement
+	stmt, err := db.Prepare("UPDATE makanan SET KategoriID=?, Nama_Makanan=?, Kandungan_Makanan=?, Photo_Dir=? WHERE MakananID=? AND PenjualID=?")
+	if err != nil {
+		http.Error(w, "Error preparing statement", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	// Execute the statement
+	_, err = stmt.Exec(makanan.KategoriID, makanan.Nama_Makanan, makanan.Kandungan_Makanan, makanan.Photo_Dir, makanan.MakananID, makanan.PenjualID)
+	if err != nil {
+		http.Error(w, "Error executing statement", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Makanan updated: %+v", makanan) // Log makanan update details
+	w.WriteHeader(http.StatusOK)
+}
+func main() {
+	var err error
+	db, err = sql.Open("mysql", "root:@tcp(localhost:3306)/bloodsugar")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	err = db.Ping()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	http.HandleFunc("/register", registerUser)
+	http.HandleFunc("/login", loginUser)
+	http.HandleFunc("/registerseller", registerSeller)
+	http.HandleFunc("/loginseller", loginSeller)
+	http.HandleFunc("/editUser", editUser)
+	http.HandleFunc("/editSeller", editSeller)
+	http.HandleFunc("/insertguladarah", insertGulaDarah)
+	http.HandleFunc("/getGulaDarahStats", getGulaDarahStats)
+	http.HandleFunc("/getGulaDarahHistory", getGulaDarahHistory)
+	http.HandleFunc("/getGulaDarahMonthlyStats", getGulaDarahMonthlyStats)
+	http.HandleFunc("/insertMakanan", insertMakanan)
+	http.HandleFunc("/editMakanan", editMakanan)
+	log.Println("Server starting on port 8080...")
+	http.ListenAndServe(":8080", nil)
+}
